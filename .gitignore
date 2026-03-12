@@ -1,0 +1,4 @@
+.venv
+.env
+.claudeignore
+__pycache__
