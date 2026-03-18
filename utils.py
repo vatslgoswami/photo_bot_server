@@ -23,7 +23,10 @@ ANALYSIS_TOOL = {
         "properties": {
             "dishes": {
                 "type": "object",
-                "description": "Maps each identified dish name to its macro breakdown. Ensure only to write the dish name and nothing else as the key.",
+                "description": """Maps each identified dish name to its macro breakdown. For dish names used as keys in the dishes object: (i) Write ONLY the dish name. Nothing else. 
+                (ii) No qualifiers, no portion info, no brackets, no parentheses, no slashes. 
+                (iii) WRONG: "Lassi / Chaas (in glass)", "Rice (steamed)", "Dal / Lentil soup"
+                (iv)CORRECT: 'Lassi', 'Rice', 'Dal Makhni'""",
                 "additionalProperties": {
                     "type": "object",
                     "properties": {
