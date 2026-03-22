@@ -5,9 +5,17 @@ import json
 import os
 from dotenv import load_dotenv
 from anthropic import Anthropic
+from anthropic import APIError as AnthropicAPIError
+from anthropic import APIConnectionError as AnthropicConnectionError
+from anthropic import APITimeoutError as AnthropicTimeoutError
+from anthropic import RateLimitError as AnthropicRateLimitError
 from openai import OpenAI
+from openai import APIError as OpenAIAPIError
+from openai import APIConnectionError as OpenAIConnectionError
+from openai import APITimeoutError as OpenAITimeoutError
+from openai import RateLimitError as OpenAIRateLimitError
 from PIL import Image
-from utils import SYSTEM_PROMPT, ANALYSIS_TOOL
+from prompts import SYSTEM_PROMPT, ANALYSIS_TOOL
 
 load_dotenv(dotenv_path=".env")
 
@@ -36,7 +44,7 @@ def _resize_if_needed(image_bytes: bytes, media_type: str) -> bytes:
             return data
 
 
-def analyze_food_claude(image_bytes: bytes, media_type: str, model="claude-sonnet-4-6") -> dict:
+def analyze_food_claude(image_bytes: bytes, media_type: str, model: str = "claude-sonnet-4-6") -> dict:
     """
     Send the image to Claude and return structured macro data.
 
@@ -56,32 +64,41 @@ def analyze_food_claude(image_bytes: bytes, media_type: str, model="claude-sonne
     image_bytes = _resize_if_needed(image_bytes, media_type)
     b64_image = base64.b64encode(image_bytes).decode("utf-8")
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        tools=[ANALYSIS_TOOL],
-        tool_choice={"type": "any"},  # forces Claude to call the tool
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": b64_image,
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=2048,
+            system=SYSTEM_PROMPT,
+            tools=[ANALYSIS_TOOL],
+            tool_choice={"type": "any"},  # forces Claude to call the tool
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": b64_image,
+                            },
                         },
-                    },
-                    {
-                        "type": "text",
-                        "text": ANALYSIS_REQUEST_TEXT,
-                    },
-                ],
-            }
-        ],
-    )
+                        {
+                            "type": "text",
+                            "text": ANALYSIS_REQUEST_TEXT,
+                        },
+                    ],
+                }
+            ],
+        )
+    except AnthropicRateLimitError:
+        raise RuntimeError("Anthropic rate limit reached. Please try again later.")
+    except AnthropicTimeoutError:
+        raise RuntimeError("Anthropic API request timed out. Please try again.")
+    except AnthropicConnectionError:
+        raise RuntimeError("Could not connect to Anthropic API. Check your network.")
+    except AnthropicAPIError as e:
+        raise RuntimeError(f"Anthropic API error: {e}")
 
     for block in response.content:
         if block.type == "tool_use" and block.name == "submit_food_analysis":
@@ -159,7 +176,7 @@ def _openai_strict_schema(schema: dict) -> dict:
     return strict
 
 
-def analyze_food_gpt(image_bytes: bytes, media_type: str, model="gpt-5-mini") -> dict:
+def analyze_food_gpt(image_bytes: bytes, media_type: str, model: str = "gpt-5-mini") -> dict:
     """
     Send the image to OpenAI and return structured macro data.
 
@@ -177,37 +194,47 @@ def analyze_food_gpt(image_bytes: bytes, media_type: str, model="gpt-5-mini") ->
 
     strict_schema = _openai_strict_schema(ANALYSIS_TOOL["input_schema"])
 
-    response = client.responses.create(
-        model=model,
-        input=[
-            {"role": "system", "content": [{"type": "input_text", "text": SYSTEM_PROMPT}]},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": ANALYSIS_REQUEST_TEXT},
-                    {
-                        "type": "input_image",
-                        "image_url": f"data:{media_type};base64,{b64_image}",
-                    },
-                ],
-            },
-        ],
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": ANALYSIS_TOOL["name"],
-                "schema": strict_schema,
-                "strict": True,
+    try:
+        response = client.responses.create(
+            model=model,
+            input=[
+                {"role": "system", "content": [{"type": "input_text", "text": SYSTEM_PROMPT}]},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": ANALYSIS_REQUEST_TEXT},
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:{media_type};base64,{b64_image}",
+                        },
+                    ],
+                },
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": ANALYSIS_TOOL["name"],
+                    "schema": strict_schema,
+                    "strict": True,
+                }
             }
-        }
-    )
+        )
+    except OpenAIRateLimitError:
+        raise RuntimeError("OpenAI rate limit reached. Please try again later.")
+    except OpenAITimeoutError:
+        raise RuntimeError("OpenAI API request timed out. Please try again.")
+    except OpenAIConnectionError:
+        raise RuntimeError("Could not connect to OpenAI API. Check your network.")
+    except OpenAIAPIError as e:
+        raise RuntimeError(f"OpenAI API error: {e}")
+
     return _extract_openai_json(response)
 
-def analyze_food_image(image_bytes, media_type, ai_provider="openai"):
+def analyze_food_image(image_bytes, media_type, ai_provider="openai", model: str = None):
     if ai_provider.lower().strip() == "anthropic":
-            result = analyze_food_claude(image_bytes, media_type)
-            
-    elif ai_provider.lower().strip()=="openai":
-        result = analyze_food_gpt(image_bytes, media_type)
-    
+        result = analyze_food_claude(image_bytes, media_type, **({"model": model} if model else {}))
+
+    elif ai_provider.lower().strip() == "openai":
+        result = analyze_food_gpt(image_bytes, media_type, **({"model": model} if model else {}))
+
     return result

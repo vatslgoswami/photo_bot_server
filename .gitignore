@@ -2,3 +2,5 @@
 .env
 .claudeignore
 __pycache__
+/tests
+.pytest_cache

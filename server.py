@@ -2,10 +2,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 import uvicorn
 from dotenv import load_dotenv
+from utils.analyzer_functions import analyze_food_image
 
-load_dotenv(dotenv_path=".env")  # pick up ANTHROPIC_API_KEY from the project root
-
-from analyzer import analyze_food_image
+load_dotenv(dotenv_path=".env")
 
 app = FastAPI(title="Beet Food-Image Analyzer", version="1.0.0")
 
@@ -18,12 +17,12 @@ MEDIA_TYPE_MAP = {
 
 
 @app.get("/health")
+# Check if server is running
 def health():
     return {"status": "ok"}
 
-
-@app.post("/analyze")
-async def analyze(file: UploadFile = File(...), ai_provider = "anthropic"):
+@app.post("/analyze_photo")
+async def analyze(file: UploadFile = File(...), ai_provider = "openai", model: str = None):
     """
     Upload a food image and receive a JSON breakdown of identified dishes and their macros.
 
@@ -60,10 +59,17 @@ async def analyze(file: UploadFile = File(...), ai_provider = "anthropic"):
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
     try:
-        result = analyze_food_image(image_bytes, media_type, ai_provider,)
+        result = analyze_food_image(image_bytes, media_type, ai_provider, model=model)
 
     except EnvironmentError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+    except RuntimeError as e:
+        msg = str(e)
+        transient = any(k in msg for k in ("rate limit", "timed out", "connect"))
+        status = 503 if transient else 500
+        raise HTTPException(status_code=status, detail=msg)
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
