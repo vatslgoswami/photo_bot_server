@@ -1,7 +1,7 @@
 # Beet Food Analyzer API
 
-A FastAPI service that hosts two endpoints: 
-i. _analyze\_photo_:  to analyze photos of food
+A FastAPI service that hosts two endpoints:<br>
+i. _analyze\_photo_:  to analyze photos of food<br>
 ii. _analyze\_text_: to analyze text-based queries.
 
 Both return a structured JSON macro-nutrient breakdown of every dish in the photo/query.
