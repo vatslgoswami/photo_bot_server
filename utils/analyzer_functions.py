@@ -15,7 +15,7 @@ from openai import APIConnectionError as OpenAIConnectionError
 from openai import APITimeoutError as OpenAITimeoutError
 from openai import RateLimitError as OpenAIRateLimitError
 from PIL import Image
-from prompts import SYSTEM_PROMPT, ANALYSIS_TOOL
+from utils.prompts import SYSTEM_PROMPT_PHOTO, SYSTEM_PROMPT_TEXT, ANALYSIS_TOOL
 
 load_dotenv(dotenv_path=".env")
 
@@ -68,7 +68,7 @@ def analyze_food_claude(image_bytes: bytes, media_type: str, model: str = "claud
         response = client.messages.create(
             model=model,
             max_tokens=2048,
-            system=SYSTEM_PROMPT,
+            system=SYSTEM_PROMPT_PHOTO,
             tools=[ANALYSIS_TOOL],
             tool_choice={"type": "any"},  # forces Claude to call the tool
             messages=[
@@ -198,7 +198,7 @@ def analyze_food_gpt(image_bytes: bytes, media_type: str, model: str = "gpt-5-mi
         response = client.responses.create(
             model=model,
             input=[
-                {"role": "system", "content": [{"type": "input_text", "text": SYSTEM_PROMPT}]},
+                {"role": "system", "content": [{"type": "input_text", "text": SYSTEM_PROMPT_PHOTO}]},
                 {
                     "role": "user",
                     "content": [
@@ -230,7 +230,90 @@ def analyze_food_gpt(image_bytes: bytes, media_type: str, model: str = "gpt-5-mi
 
     return _extract_openai_json(response)
 
-def analyze_food_image(image_bytes, media_type, ai_provider="openai", model: str = None):
+def analyze_text_claude(query: str, model: str = "claude-sonnet-4-6") -> dict:
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
+
+    client = Anthropic(api_key=api_key)
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=2048,
+            system=SYSTEM_PROMPT_TEXT,
+            tools=[ANALYSIS_TOOL],
+            tool_choice={"type": "any"},
+            messages=[
+                {
+                    "role": "user",
+                    "content": query,
+                }
+            ],
+        )
+    except AnthropicRateLimitError:
+        raise RuntimeError("Anthropic rate limit reached. Please try again later.")
+    except AnthropicTimeoutError:
+        raise RuntimeError("Anthropic API request timed out. Please try again.")
+    except AnthropicConnectionError:
+        raise RuntimeError("Could not connect to Anthropic API. Check your network.")
+    except AnthropicAPIError as e:
+        raise RuntimeError(f"Anthropic API error: {e}")
+
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "submit_food_analysis":
+            return block.input
+
+    raise RuntimeError("Claude did not return a structured tool-use response.")
+
+
+def analyze_text_gpt(query: str, model: str = "gpt-5-mini") -> dict:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise EnvironmentError("OPENAI_API_KEY is not set.")
+
+    client = OpenAI(api_key=api_key)
+    strict_schema = _openai_strict_schema(ANALYSIS_TOOL["input_schema"])
+
+    try:
+        response = client.responses.create(
+            model=model,
+            input=[
+                {"role": "system", "content": [{"type": "input_text", "text": SYSTEM_PROMPT_TEXT}]},
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": query}],
+                },
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": ANALYSIS_TOOL["name"],
+                    "schema": strict_schema,
+                    "strict": True,
+                }
+            }
+        )
+    except OpenAIRateLimitError:
+        raise RuntimeError("OpenAI rate limit reached. Please try again later.")
+    except OpenAITimeoutError:
+        raise RuntimeError("OpenAI API request timed out. Please try again.")
+    except OpenAIConnectionError:
+        raise RuntimeError("Could not connect to OpenAI API. Check your network.")
+    except OpenAIAPIError as e:
+        raise RuntimeError(f"OpenAI API error: {e}")
+
+    return _extract_openai_json(response)
+
+
+def analyze_food_text(query: str, ai_provider: str = "openai", model: str | None = None) -> dict:
+    if ai_provider.lower().strip() == "anthropic":
+        return analyze_text_claude(query, **({"model": model} if model else {}))
+    elif ai_provider.lower().strip() == "openai":
+        return analyze_text_gpt(query, **({"model": model} if model else {}))
+
+
+def analyze_food_image(image_bytes, media_type, ai_provider="openai", model: str | None = None):
     if ai_provider.lower().strip() == "anthropic":
         result = analyze_food_claude(image_bytes, media_type, **({"model": model} if model else {}))
 

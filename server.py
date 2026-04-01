@@ -2,11 +2,11 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 import uvicorn
 from dotenv import load_dotenv
-from utils.analyzer_functions import analyze_food_image
+from utils.analyzer_functions import analyze_food_image, analyze_food_text
 
 load_dotenv(dotenv_path=".env")
 
-app = FastAPI(title="Beet Food-Image Analyzer", version="1.0.0")
+app = FastAPI(title="Beet Food-Image Analyzer", version="1.1.0")
 
 MEDIA_TYPE_MAP = {
     "jpg":  "image/jpeg",
@@ -22,7 +22,7 @@ def health():
     return {"status": "ok"}
 
 @app.post("/analyze_photo")
-async def analyze(file: UploadFile = File(...), ai_provider = "openai", model: str = None):
+async def analyze_photo(file: UploadFile = File(...), ai_provider = "openai", model: str = None):
     """
     Upload a food image and receive a JSON breakdown of identified dishes and their macros.
 
@@ -75,5 +75,32 @@ async def analyze(file: UploadFile = File(...), ai_provider = "openai", model: s
 
     return JSONResponse(content=result)
 
+@app.post("/analyze_text")
+async def analyze_text(query: str, ai_provider: str = "openai", model: str | None = None):
+    """
+    Send a text description of food and receive a JSON breakdown of identified dishes and their macros.
+    Same response shape as /analyze_photo.
+    """
+    if not query or not query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty.")
+
+    try:
+        result = analyze_food_text(query.strip(), ai_provider, model=model)
+
+    except EnvironmentError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    except RuntimeError as e:
+        msg = str(e)
+        transient = any(k in msg for k in ("rate limit", "timed out", "connect"))
+        status = 503 if transient else 500
+        raise HTTPException(status_code=status, detail=msg)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+
+    return JSONResponse(content=result)
+
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", reload=True)
+    uvicorn.run("server:app", reload=True)
