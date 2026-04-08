@@ -1,12 +1,41 @@
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import os
 import uvicorn
 from dotenv import load_dotenv
 from utils.analyzer_functions import analyze_food_image, analyze_food_text
 
 load_dotenv(dotenv_path=".env")
 
+# Vite dev / preview; add production web origins via CORS_ORIGINS in .env (comma-separated)
+_cors_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+]
+_extra = os.getenv("CORS_ORIGINS", "")
+if _extra.strip():
+    _cors_origins = list(
+        dict.fromkeys(
+            _cors_origins + [o.strip() for o in _extra.split(",") if o.strip()]
+        )
+    )
+
 app = FastAPI(title="Beet Food-Image Analyzer", version="1.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 MEDIA_TYPE_MAP = {
     "jpg":  "image/jpeg",
