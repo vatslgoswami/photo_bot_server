@@ -8,7 +8,13 @@ from utils.analyzer_functions import analyze_food_image, analyze_food_text
 
 load_dotenv(dotenv_path=".env")
 
-# Vite dev / preview; add production web origins via CORS_ORIGINS in .env (comma-separated)
+
+def _parse_csv_env(name: str) -> list[str]:
+    value = os.getenv(name, "")
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+# Local Vite dev/preview ports plus Beet Health deployed web apps on justbots.tech.
 _cors_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -19,19 +25,18 @@ _cors_origins = [
     "http://localhost:4173",
     "http://127.0.0.1:4173",
 ]
-_extra = os.getenv("CORS_ORIGINS", "")
-if _extra.strip():
-    _cors_origins = list(
-        dict.fromkeys(
-            _cors_origins + [o.strip() for o in _extra.split(",") if o.strip()]
-        )
-    )
+_cors_origins = list(dict.fromkeys(_cors_origins + _parse_csv_env("CORS_ORIGINS")))
+_cors_origin_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"^https://beethealth(?:-[a-z0-9-]+)?\.justbots\.tech$",
+)
 
 app = FastAPI(title="Beet Food-Image Analyzer", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
